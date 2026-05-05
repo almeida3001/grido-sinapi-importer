@@ -1,0 +1,4 @@
+autosinapi @ git+https://github.com/LAMP-LUCAS/AutoSINAPI.git@main
+psycopg2-binary>=2.9.9
+pandas>=2.2.0
+openpyxl>=3.1.0
