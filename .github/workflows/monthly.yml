@@ -1,10 +1,8 @@
 name: SINAPI Monthly Import
 
-
 on:
   schedule:
-    - cron: "0 9 5,10,15 * *"→ Runs at 09:00, on day 5, 10, and 15 of the month
-
+    - cron: "0 9 5,10,15 * *"
   workflow_dispatch:
     inputs:
       mes:
@@ -21,7 +19,6 @@ on:
         type: choice
         options: [substituir, manter]
 
-
 jobs:
   import:
     runs-on: ubuntu-latest
@@ -37,3 +34,61 @@ jobs:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
       - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Compute target month
+        id: month
+        run: |
+          if [ -n "${{ github.event.inputs.mes }}" ]; then
+            YYYY=$(echo "${{ github.event.inputs.mes }}" | cut -d- -f1)
+            MM=$(echo "${{ github.event.inputs.mes }}" | cut -d- -f2)
+          else
+            YYYY=$(date -u -d "$(date -u +%Y-%m-01) -1 day" +%Y)
+            MM=$(date -u -d "$(date -u +%Y-%m-01) -1 day" +%m)
+          fi
+          echo "yyyy=$YYYY" >> $GITHUB_OUTPUT
+          echo "mm=$MM" >> $GITHUB_OUTPUT
+          echo "mes=$YYYY-$MM" >> $GITHUB_OUTPUT
+      - name: Download SINAPI ZIP from Caixa
+        env:
+          YYYY: ${{ steps.month.outputs.yyyy }}
+          MM: ${{ steps.month.outputs.mm }}
+          TIPO: ${{ github.event.inputs.tipo || 'REFERENCIA' }}
+        run: |
+          mkdir -p downloads/${YYYY}_${MM}
+          URL="https://www.caixa.gov.br/Downloads/sinapi-a-vista-composicoes/SINAPI_${TIPO}_${MM}_${YYYY}.zip"
+          OUT="downloads/${YYYY}_${MM}/SINAPI_${TIPO}_${MM}_${YYYY}.zip"
+          echo "Downloading $URL"
+          curl -L --max-redirs 5 --retry 3 --retry-delay 5 -o "$OUT" \
+            -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/120.0" \
+            -H "Referer: https://www.caixa.gov.br/site/Paginas/downloads.aspx?grupo=37" \
+            -H "Accept: application/zip,*/*" \
+            "$URL"
+          ls -lh "$OUT"
+          file "$OUT"
+      - name: Run importer
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          AUTOSINAPI_SKIP_DOWNLOAD: "true"
+        run: |
+          MES_ARG="--mes ${{ steps.month.outputs.mes }}"
+          TIPO="${{ github.event.inputs.tipo || 'REFERENCIA' }}"
+          POL="${{ github.event.inputs.policy || 'substituir' }}"
+          ZIP="downloads/${{ steps.month.outputs.yyyy }}_${{ steps.month.outputs.mm }}/SINAPI_${TIPO}_${{ steps.month.outputs.mm }}_${{ steps.month.outputs.yyyy }}.zip"
+          python src/importer.py --tipo "$TIPO" --policy "$POL" $MES_ARG --zip-local "$ZIP"
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            try {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: \`Falha import SINAPI \${today}\`,
+                body: \`Falhou em \${today}. Logs: \${context.serverUrl}/\${context.repo.owner}/\${context.repo.repo}/actions/runs/\${context.runId}\`,
+                labels: ["bug", "sinapi"],
+              });
+            } catch(e) { console.log('issue create skipped:', e.message); }
