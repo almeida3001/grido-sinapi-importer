@@ -87,8 +87,6 @@ jobs:
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                title: \`Falha import SINAPI \${today}\`,
-                body: \`Falhou em \${today}. Logs: \${context.serverUrl}/\${context.repo.owner}/\${context.repo.repo}/actions/runs/\${context.runId}\`,
-                labels: ["bug", "sinapi"],
-              });
-            } catch(e) { console.log('issue create skipped:', e.message); }
+                title: `Falha import SINAPI ${today}`,
+                body: `Falhou em ${today}. Logs: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                labels: [\"bug\", \"sinapi\"],\n              });\n            } catch(e) { console.log('issue create skipped:', e.message); }
